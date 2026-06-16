@@ -1,0 +1,16 @@
+:Actions	cicd.txt	/*:Actions*
+:Cicd	cicd.txt	/*:Cicd*
+cicd-api	cicd.txt	/*cicd-api*
+cicd-auth	cicd.txt	/*cicd-auth*
+cicd-commands	cicd.txt	/*cicd-commands*
+cicd-config	cicd.txt	/*cicd-config*
+cicd-contents	cicd.txt	/*cicd-contents*
+cicd-installation	cicd.txt	/*cicd-installation*
+cicd-intro	cicd.txt	/*cicd-intro*
+cicd-keys	cicd.txt	/*cicd-keys*
+cicd-providers	cicd.txt	/*cicd-providers*
+cicd-requirements	cicd.txt	/*cicd-requirements*
+cicd-trouble	cicd.txt	/*cicd-trouble*
+cicd.open_pipeline_browser()	cicd.txt	/*cicd.open_pipeline_browser()*
+cicd.setup()	cicd.txt	/*cicd.setup()*
+cicd.txt	cicd.txt	/*cicd.txt*

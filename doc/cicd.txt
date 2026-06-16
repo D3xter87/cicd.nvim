@@ -1,0 +1,219 @@
+*cicd.txt*	CI/CD pipeline browser for Neovim -- GitLab + GitHub Actions
+
+Author:   Damian Stefaniuk (D3xter87)
+License:  MIT
+
+==============================================================================
+CONTENTS                                                       *cicd-contents*
+
+  1. Introduction ........................................ |cicd-intro|
+  2. Requirements ........................................ |cicd-requirements|
+  3. Installation ........................................ |cicd-installation|
+  4. Authentication ...................................... |cicd-auth|
+  5. Commands ............................................ |cicd-commands|
+  6. Window key-map ...................................... |cicd-keys|
+  7. Configuration ....................................... |cicd-config|
+  8. Provider detection .................................. |cicd-providers|
+  9. Lua API ............................................. |cicd-api|
+ 10. Troubleshooting ..................................... |cicd-trouble|
+
+==============================================================================
+1. Introduction                                                   *cicd-intro*
+
+`cicd.nvim` is an interactive pipeline / workflow browser for Neovim. It
+talks to your forge of choice through its public REST API and renders the
+current pipeline of the active git branch in a single floating window.
+
+Out of the box it supports:
+
+  - GitLab CI/CD (REST API v4) -- pipelines, stages, jobs, manual triggers,
+    retries, cancellations.
+  - GitHub Actions (REST) -- workflow runs, jobs, rerun, cancel.
+
+The plugin does not shell out to `glab` or `gh` and does not depend on
+plenary or curl libraries -- only the system `curl` binary.
+
+==============================================================================
+2. Requirements                                            *cicd-requirements*
+
+  - Neovim 0.10 or newer (uses `vim.system`, `vim.uv`).
+  - `curl` binary on PATH.
+  - A git repository with an `origin` remote pointing at GitLab or GitHub
+    (HTTPS, SSH or scp-style remotes are accepted).
+  - A personal access token for the forge (see |cicd-auth|).
+
+==============================================================================
+3. Installation                                            *cicd-installation*
+
+With `lazy.nvim`: >lua
+
+    {
+      "D3xter87/cicd.nvim",
+      cmd = { "Cicd", "Actions" },
+      opts = {
+        -- see |cicd-config| for the full schema; everything is optional.
+      },
+    }
+<
+==============================================================================
+4. Authentication                                                  *cicd-auth*
+
+Tokens are looked up in the following order, first hit wins:
+
+  1. `opts.providers[<name>].token` from |cicd.setup()|.
+  2. `~/.netrc` (or `%USERPROFILE%\_netrc` on Windows), keyed by host:
+     >
+       machine gitlab.example.com
+         login <ignored>
+         password glpat-XXXXXXXXXXXXXXXX
+     <
+  3. Environment variables: `$GITLAB_TOKEN` for GitLab, `$GITHUB_TOKEN` for
+     GitHub.
+
+Tokens are never logged, never written to state, and never echoed.
+
+GitLab tokens need at least `read_api`; manual job triggers / retries
+require the `api` scope.
+
+GitHub tokens need the `repo` scope (or `actions:read` + `actions:write` for
+fine-grained tokens). For `github.com` the auth host used for `~/.netrc` is
+`api.github.com`.
+
+==============================================================================
+5. Commands                                                    *cicd-commands*
+
+                                                                       *:Cicd*
+                                                                    *:Actions*
+:Cicd [{branch}]                                ~
+:Actions [{branch}]                             ~
+
+  Open the pipeline browser for {branch}, or for the current `HEAD` if no
+  branch is supplied. Branch completion is wired to the local refs and
+  `origin/`-tracked refs.
+
+  `:Cicd` and `:Actions` are aliases -- the actual provider is detected from
+  `git remote get-url origin` (see |cicd-providers|), so naming is purely a
+  matter of taste (use whichever reads naturally for the repository).
+
+==============================================================================
+6. Window key-map                                                  *cicd-keys*
+
+Inside the browser window:
+
+  j / k          move within current stage's job list
+  h / l          move between stages
+  gg / G         jump to first / last job
+  /              filter -- start typing; results narrow live; <CR>/<Esc> exit
+  <BS>           erase one filter character
+  <CR>           act on the selected job (see status mapping below)
+  a              act on every actionable job in the current stage
+  r              refresh now
+  q / <Esc>      close
+
+Status -> action mapping for `<CR>` / `a`:
+
+  manual                       play
+  failed | canceled            retry
+  running | pending | created  cancel
+  success / skipped / etc.     not actionable (silently ignored)
+
+While the browser is open the plugin auto-refreshes when there are running
+or pending jobs, and stops the timer once everything has settled.
+
+==============================================================================
+7. Configuration                                                 *cicd-config*
+
+Call >lua
+
+  require("cicd").setup({ ... })
+<
+or pass `opts = { ... }` if you use `lazy.nvim`. Every key is optional.
+
+Defaults: >lua
+
+  {
+    intervals = {
+      single_monitor = 10000,  -- ms; per-job status poll
+      batch_monitor  = 5000,   -- ms; act-all watcher
+      auto_refresh   = 5000,   -- ms; window auto-refresh
+      min            = 3000,
+    },
+    providers = {
+      -- Per-provider explicit token override (testing / scripted use).
+      -- gitlab = { token = "glpat-..." },
+      -- github = { token = "ghp-..." },
+    },
+    host_providers = {
+      -- Force a provider for unusual hostnames, e.g. self-hosted GitLab
+      -- on a hostname that does not contain "gitlab".
+      -- ["ci.example.com"] = "gitlab",
+      -- ["ghes.example.com"] = "github",
+    },
+    host_schemes = {
+      -- Override the API URL scheme per host. By default the scheme is
+      -- taken from the http(s):// prefix of `git remote get-url origin`;
+      -- SSH/scp remotes default to https.
+      -- ["gitlab.intranet"] = "http",
+    },
+    host_bases = {
+      -- Full base URL override (wins over scheme + default path). Use for
+      -- non-standard API roots, e.g. GitHub Enterprise:
+      -- ["ghes.corp"] = "https://ghes.corp/api/v3",
+    },
+    debug = false,
+  }
+<
+==============================================================================
+8. Provider detection                                         *cicd-providers*
+
+`cicd.nvim` parses the `origin` remote URL into `{ host, path, scheme }` and
+picks a provider with the following rules (first match wins):
+
+  1. `cfg.host_providers[host]` if set.
+  2. `host == "github.com"` or `host` matches `^ghes%.` -> `github`.
+  3. `host` starts with `gitlab.` or contains `gitlab` -> `gitlab`.
+  4. Default fallback -> `gitlab`.
+
+For self-hosted forges with hostnames that don't fit the heuristics, set
+`host_providers` in your |cicd-config|.
+
+GitLab API base is computed as `<scheme>://<host>/api/v4` unless overridden
+by `host_bases`. GitHub API uses `https://api.github.com` for `github.com`,
+and `<scheme>://<host>/api/v3` for GitHub Enterprise.
+
+==============================================================================
+9. Lua API                                                          *cicd-api*
+
+                                                              *cicd.setup()*
+require("cicd").setup({opts})                   ~
+
+  Apply user configuration. See |cicd-config|.
+
+                                              *cicd.open_pipeline_browser()*
+require("cicd").open_pipeline_browser({opts})   ~
+
+  Open the browser. Same effect as `:Cicd`. `opts.branch` overrides the
+  current `HEAD` (the leading `origin/` is stripped if present).
+
+==============================================================================
+10. Troubleshooting                                             *cicd-trouble*
+
+"No token for <provider> (host <host>)..."
+    The plugin couldn't find a token in any of the lookup paths. Add a
+    `~/.netrc` entry or export `$GITLAB_TOKEN` / `$GITHUB_TOKEN`.
+
+"auth failed (check ~/.netrc or token)"
+    HTTP 401 from the API. Token expired, missing scope, or the wrong host.
+    For GitHub remember the `~/.netrc` host is `api.github.com`, not
+    `github.com`.
+
+"insufficient token scope (need api)"
+    HTTP 403. GitLab tokens need `api` (read_api is not enough for
+    play/retry/cancel).
+
+"could not connect (offline / VPN?)"
+    `curl` couldn't reach the host. Common cause: VPN required for
+    self-hosted GitLab.
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
