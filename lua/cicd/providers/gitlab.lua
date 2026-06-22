@@ -221,16 +221,21 @@ function M.resolve_web_url(remote, ref, cb)
   local scheme = pipelines_url:match("^(https?)://") or "https"
   local web_base = string.format("%s://%s/%s", scheme, remote.host, remote.path)
 
+  -- GitLab's pipelines `ref` filter matches branch/tag names only, NOT commit
+  -- SHAs. For a SHA target we must query the dedicated `sha` parameter,
+  -- otherwise the lookup finds nothing and we fall back to the commit page.
+  local query = { order_by = "updated_at", sort = "desc", per_page = 1 }
+  if ref.kind == "sha" then
+    query.sha = ref.value
+  else
+    query.ref = ref.value
+  end
+
   client.request({
     url = pipelines_url,
     method = "get",
     headers = remote.headers,
-    query = {
-      ref = ref.value,
-      order_by = "updated_at",
-      sort = "desc",
-      per_page = 1,
-    },
+    query = query,
   }, function(res)
     if res.ok then
       local list = client.decode_json(res.body)
