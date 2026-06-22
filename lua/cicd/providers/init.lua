@@ -13,6 +13,8 @@
 --                                                   no job fetch; falls back
 --                                                   to a sensible listing URL
 --   provider.run_action(remote, job, cb)          : router for play/retry/rerun
+--   provider.fetch_job_log(remote, job, cb)        : cb(text|nil, err) — plain-text
+--                                                   job log / trace
 --
 -- UI code consumes the normalized { Pipeline = {id, branch, status, jobs} }
 -- shape regardless of provider. Individual providers own their own status

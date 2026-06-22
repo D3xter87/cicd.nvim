@@ -5,6 +5,7 @@ local defaults = {
     single_monitor = 10000,
     batch_monitor = 5000,
     auto_refresh = 5000,
+    log_refresh = 3000,
     min = 3000,
   },
   providers = {

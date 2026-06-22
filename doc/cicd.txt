@@ -107,6 +107,10 @@ Inside the browser window:
   <BS>           erase one filter character
   <CR>           act on the selected job (see status mapping below)
   a              act on every actionable job in the current stage
+  o              open the selected job in the browser
+  O              open the whole pipeline / latest run in the browser
+  L              view the selected job's log in a floating buffer; auto-refreshes
+                 while the job is still running (r refreshes, q/<Esc> closes)
   r              refresh now
   q / <Esc>      close
 
@@ -136,6 +140,7 @@ Defaults: >lua
       single_monitor = 10000,  -- ms; per-job status poll
       batch_monitor  = 5000,   -- ms; act-all watcher
       auto_refresh   = 5000,   -- ms; window auto-refresh
+      log_refresh    = 3000,   -- ms; open job-log viewer auto-refresh
       min            = 3000,
     },
     providers = {

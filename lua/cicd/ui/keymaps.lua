@@ -14,7 +14,7 @@ local filter_mod = require("cicd.ui.filter")
 local render_mod = require("cicd.ui.render")
 local nav = require("cicd.ui.navigation")
 
----@param actions { close: fun(), trigger_selected: fun(), trigger_all: fun(), refresh: fun() }
+---@param actions { close: fun(), trigger_selected: fun(), trigger_all: fun(), refresh: fun(), open_job: fun(), open_pipeline: fun(), view_log: fun() }
 function M.setup(actions)
   local state = state_mod.state
   local opts = { buffer = state.buf, silent = true, noremap = true }
@@ -99,12 +99,18 @@ function M.setup(actions)
   vim.keymap.set("n", "a", filter_or_action("a", actions.trigger_all), opts)
   vim.keymap.set("n", "r", filter_or_action("r", actions.refresh), opts)
 
+  -- Open / log
+  vim.keymap.set("n", "o", filter_or_action("o", actions.open_job), opts)
+  vim.keymap.set("n", "O", filter_or_action("O", actions.open_pipeline), opts)
+  vim.keymap.set("n", "L", filter_or_action("L", actions.view_log), opts)
+
   -- Capture remaining keys so Vim doesn't interpret them as edit commands.
-  local remaining_lower = { "b", "c", "d", "e", "f", "i", "m", "n", "o", "p", "s", "t", "u", "v", "w", "x", "y", "z" }
+  -- (o / O / L are bound above, so they're excluded here.)
+  local remaining_lower = { "b", "c", "d", "e", "f", "i", "m", "n", "p", "s", "t", "u", "v", "w", "x", "y", "z" }
   for _, char in ipairs(remaining_lower) do
     vim.keymap.set("n", char, filter_only(char), opts)
   end
-  local remaining_upper = { "A", "B", "C", "D", "E", "F", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z" }
+  local remaining_upper = { "A", "B", "C", "D", "E", "F", "H", "I", "J", "K", "M", "N", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z" }
   for _, char in ipairs(remaining_upper) do
     vim.keymap.set("n", char, filter_only(char), opts)
   end

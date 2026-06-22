@@ -67,6 +67,7 @@ local function normalize_job(raw)
     stage = nullable(raw.stage) or "",
     duration = type(duration) == "number" and duration or nil,
     needs = normalize_needs(raw.needs),
+    web_url = nullable(raw.web_url),
     raw = raw,
   }
 end
@@ -244,6 +245,28 @@ function M.resolve_web_url(remote, ref, cb)
     else
       cb(string.format("%s/-/pipelines?ref=%s", web_base, ref.value))
     end
+  end)
+end
+
+---Fetches the raw trace (log) for a job as plain text.
+---@param remote table
+---@param job table  normalized job (must have id)
+---@param cb fun(text: string|nil, err: string|nil)
+function M.fetch_job_log(remote, job, cb)
+  if not job or not job.id then
+    return cb(nil, "missing job id")
+  end
+  local url = string.format(
+    "%s/projects/%s/jobs/%s/trace",
+    remote.base_url, remote.project_id, tostring(job.id)
+  )
+  client.request({
+    url = url,
+    method = "get",
+    headers = remote.headers,
+  }, function(res)
+    if res.ok then return cb(res.body or "") end
+    cb(nil, res.err or "failed to fetch job log")
   end)
 end
 

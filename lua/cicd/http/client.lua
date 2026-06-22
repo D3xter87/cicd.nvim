@@ -69,6 +69,12 @@ end
 local function build_args(opts)
   local args = { "curl", "--silent", "--include", "--max-time", "30",
                  "-X", (opts.method or "GET"):upper() }
+  -- Follow redirects (e.g. GitHub's per-job log endpoint 302s to a pre-signed
+  -- blob URL). parse_response already restarts on each fresh HTTP/ status line,
+  -- so the final 200 body is recovered correctly.
+  if opts.follow_redirects then
+    table.insert(args, "--location")
+  end
   if opts.headers then
     for k, v in pairs(opts.headers) do
       table.insert(args, "-H")
@@ -140,7 +146,7 @@ local function parse_response(raw)
   return status, "", headers
 end
 
----@param opts { url: string, method: string?, headers: table?, query: table?, body: string? }
+---@param opts { url: string, method: string?, headers: table?, query: table?, body: string?, follow_redirects: boolean? }
 ---@param cb fun(result: { ok: boolean, status: number?, body: string?, headers: table?, err: string? })
 function M.request(opts, cb)
   local args = build_args(opts)

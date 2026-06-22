@@ -103,6 +103,7 @@ local function normalize_job(raw, run)
     stage = (run and run.name) or nullable(raw.workflow_name) or "workflow",
     duration = compute_duration(raw.started_at, raw.completed_at),
     needs = nil,
+    web_url = nullable(raw.html_url),
     raw = raw,
   }
 end
@@ -316,6 +317,31 @@ end
 ---@param cb fun(pipeline: table|nil, err: string|nil)
 function M.fetch_pipeline(_remote, _pipeline_id, cb)
   cb(nil, "fetch_pipeline by id is not supported on github (use fetch_current_pipeline)")
+end
+
+---Fetches the plain-text log for a single job. The logs endpoint 302-redirects
+---to a pre-signed blob URL, so we follow redirects (curl drops the auth header
+---across hosts, which is correct — the target is pre-signed).
+---@param remote table
+---@param job table  normalized job (must have id)
+---@param cb fun(text: string|nil, err: string|nil)
+function M.fetch_job_log(remote, job, cb)
+  if not job or not job.id then
+    return cb(nil, "missing job id")
+  end
+  local url = string.format(
+    "%s/repos/%s/actions/jobs/%s/logs",
+    remote.base_url, remote.owner_repo, tostring(job.id)
+  )
+  client.request({
+    url = url,
+    method = "get",
+    headers = remote.headers,
+    follow_redirects = true,
+  }, function(res)
+    if res.ok then return cb(res.body or "") end
+    cb(nil, res.err or "failed to fetch job log")
+  end)
 end
 
 ---@param remote table

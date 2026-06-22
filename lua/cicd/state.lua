@@ -14,6 +14,9 @@ M.state = {
   header_end = 0,
   branch = "",
   provider_name = "",
+  -- Browser URL for the currently-loaded pipeline (used by the 'O' keymap to
+  -- open the whole pipeline/run without an extra API round-trip).
+  pipeline_web_url = nil,
   -- Resolved target reference. kind = "branch" | "sha".
   -- value is the branch name or full 40-char SHA; short is the 7-char SHA
   -- (only set when kind == "sha"). Populated by controller.open.
@@ -37,6 +40,7 @@ function M.reset()
   M.state.header_end = 0
   M.state.branch = ""
   M.state.provider_name = ""
+  M.state.pipeline_web_url = nil
   M.state.ref = nil
   M.state.fallback_attempted = false
 end

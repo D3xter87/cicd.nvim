@@ -12,8 +12,8 @@ local TITLES = {
 }
 
 local FOOTERS = {
-  gitlab = " h/l:stages  j/k:jobs  /:filter  <CR>:act  a:act-all  r:refresh  q:close ",
-  github = " h/l:workflows  j/k:jobs  /:filter  <CR>:act  a:act-all  r:refresh  q:close ",
+  gitlab = " h/l:stages  j/k:jobs  /:filter  <CR>:act  a:all  o:web  O:pipe  L:log  r:refresh  q:close ",
+  github = " h/l:workflows  j/k:jobs  /:filter  <CR>:act  a:all  o:web  O:pipe  L:log  r:refresh  q:close ",
 }
 
 local function title_for(provider)

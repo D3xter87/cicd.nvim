@@ -20,6 +20,8 @@ local providers = require("cicd.providers")
 local git_remote = require("cicd.http.git_remote")
 local git_util = require("cicd.util.git")
 local monitor = require("cicd.monitor")
+local browser = require("cicd.util.browser")
+local logview = require("cicd.ui.logview")
 
 ---@class CicdRef
 ---@field kind "branch"|"tag"|"sha"
@@ -104,6 +106,7 @@ function M.refresh_pipeline()
     local saved_cursor_line = state.cursor_line
 
     state.jobs = pipeline.jobs or {}
+    state.pipeline_web_url = pipeline.web_url
     state.jobs_by_stage = stages_mod.group_by_stage(state.jobs)
     state.stages = stages_mod.order_by_dependencies(state.jobs)
 
@@ -158,6 +161,96 @@ local function trigger_selected_job()
     end)
     vim.defer_fn(function() M.refresh_pipeline() end, 1000)
   end)
+end
+
+local function open_url(url)
+  if browser.open(url) then
+    notify("opened " .. url)
+  else
+    notify("could not open browser — copy URL manually: " .. url, vim.log.levels.WARN)
+  end
+end
+
+---'o' — open the selected job's page in the system browser.
+local function open_selected_job_web()
+  local state = state_mod.state
+  local current_jobs = stages_mod.get_current_stage_jobs(state)
+  if #current_jobs == 0 then return end
+  local job = current_jobs[state.cursor_line]
+  if not job then return end
+  if job.web_url and job.web_url ~= "" then
+    open_url(job.web_url)
+  else
+    notify("no web URL for this job", vim.log.levels.WARN)
+  end
+end
+
+---'O' — open the whole pipeline / latest run in the browser. Uses the URL the
+---refresh already captured; falls back to a fresh resolve_web_url lookup that
+---honors the session's (possibly branch-fallback) ref.
+local function open_pipeline_web()
+  local state = state_mod.state
+  if state.pipeline_web_url and state.pipeline_web_url ~= "" then
+    return open_url(state.pipeline_web_url)
+  end
+  if not ctx or type(ctx.provider.resolve_web_url) ~= "function" then
+    notify("no pipeline URL available", vim.log.levels.WARN)
+    return
+  end
+  ctx.provider.resolve_web_url(ctx.remote, ctx.ref, function(url, err)
+    if not url then
+      notify((err or "could not resolve pipeline URL"), vim.log.levels.ERROR)
+      return
+    end
+    open_url(url)
+  end)
+end
+
+-- Statuses for which a job's log is final and won't grow — no point polling.
+local LOG_TERMINAL = {
+  success = true, passed = true, failed = true,
+  canceled = true, cancelled = true, skipped = true,
+}
+
+---'L' — fetch the selected job's log/trace and show it in a floating viewer.
+---Auto-refreshes while the job may still be producing output; 'r' inside the
+---viewer refreshes on demand.
+local function view_selected_job_log()
+  local state = state_mod.state
+  if not ctx then return end
+  local current_jobs = stages_mod.get_current_stage_jobs(state)
+  if #current_jobs == 0 then return end
+  local job = current_jobs[state.cursor_line]
+  if not job or not job.id then return end
+  if type(ctx.provider.fetch_job_log) ~= "function" then
+    notify("provider has no log support", vim.log.levels.ERROR)
+    return
+  end
+
+  local view = logview.open_loading(job.name or "job")
+
+  local function fetcher(cb)
+    if not ctx then return cb(nil, "no session") end
+    ctx.provider.fetch_job_log(ctx.remote, job, cb)
+  end
+
+  -- Initial load surfaces fetch errors to the user.
+  fetcher(function(text, err)
+    if err then
+      notify("could not fetch log: " .. err, vim.log.levels.ERROR)
+      logview.set_body(view, "")
+      return
+    end
+    logview.set_body(view, text or "")
+  end)
+
+  -- Poll while the job isn't in a terminal state. Manual 'r' works regardless.
+  local intervals = config_mod.get().intervals or {}
+  local interval = math.max(intervals.log_refresh or 3000, intervals.min or 3000)
+  logview.attach_refresh(view, fetcher, {
+    interval = interval,
+    auto = not LOG_TERMINAL[job.status],
+  })
 end
 
 local ACTIONABLE = {
@@ -300,6 +393,9 @@ function M.open(opts)
     trigger_selected = trigger_selected_job,
     trigger_all = trigger_all_stage_jobs,
     refresh = M.refresh_pipeline,
+    open_job = open_selected_job_web,
+    open_pipeline = open_pipeline_web,
+    view_log = view_selected_job_log,
   })
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = state.buf })
