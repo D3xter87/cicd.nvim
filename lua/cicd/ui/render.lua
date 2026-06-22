@@ -35,6 +35,43 @@ local STATUS_HL = {
 
 local NS_ID = vim.api.nvim_create_namespace("cicd")
 
+-- Column geometry for the job table. The JOB column flexes to fill whatever
+-- width the window has; everything else is fixed. Header and rows are built
+-- through the same `row()` builder so values always line up under headers.
+local LEFT_MARGIN = 2
+local ICON_W = 2
+local STATUS_W = 10
+local DUR_W = 10
+-- Width of everything except the flexible name column (margin + icon + the
+-- three single-space gaps + status + duration).
+local FIXED_COLS = LEFT_MARGIN + ICON_W + 1 + 1 + STATUS_W + 1 + DUR_W
+
+-- Inner (text-area) width of the float, queried live so the layout follows
+-- the window even after a resize. Falls back to the open-time sizing formula.
+local function inner_width(state)
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    return vim.api.nvim_win_get_width(state.win)
+  end
+  return math.floor(vim.o.columns * 0.8)
+end
+
+-- Pad `s` with trailing spaces to a target *display* width (handles icons and
+-- multi-byte names, unlike string.format's byte-based widths).
+local function pad(s, width)
+  local d = vim.fn.strdisplaywidth(s)
+  if d >= width then return s end
+  return s .. string.rep(" ", width - d)
+end
+
+-- Truncate `s` (by display width) to fit `width`, appending ".." when cut.
+local function truncate(s, width)
+  if vim.fn.strdisplaywidth(s) <= width then return s end
+  while #s > 0 and vim.fn.strdisplaywidth(s) > width - 2 do
+    s = s:sub(1, #s - 1)
+  end
+  return s .. ".."
+end
+
 -- Format a duration (in seconds) using the largest sensible unit:
 --   < 60s   -> "Xs"      (e.g. "12s", rounded to whole seconds)
 --   < 1h    -> "Xm Ys"   (e.g. "1m 5s")
@@ -95,6 +132,29 @@ function M.render()
   vim.api.nvim_set_option_value("modifiable", true, { buf = state.buf })
 
   local terms = terms_for(state.provider_name)
+  local width = inner_width(state)
+  local current_jobs = stages_mod.get_current_stage_jobs(state)
+
+  -- Size the JOB column to the longest visible name (plus a small gap) so the
+  -- STATUS/DURATION columns sit just to its right rather than being pushed to
+  -- the far edge. Capped at the available width so a very long name can't
+  -- overflow (truncate() trims names past the cap).
+  local longest = vim.fn.strdisplaywidth("JOB")
+  for _, job in ipairs(current_jobs) do
+    longest = math.max(longest, vim.fn.strdisplaywidth(job.name or "unknown"))
+  end
+  local name_w = math.min(width - FIXED_COLS, math.max(12, longest + 2))
+
+  -- Single source of truth for the table's column layout: used for both the
+  -- header and every job row so the values stay aligned under their headers.
+  local function row(icon, name, status, duration)
+    return string.rep(" ", LEFT_MARGIN)
+      .. pad(icon, ICON_W) .. " "
+      .. pad(name, name_w) .. " "
+      .. pad(status, STATUS_W) .. " "
+      .. duration
+  end
+
   local lines = {}
   local highlights = {}
 
@@ -157,20 +217,18 @@ function M.render()
   else
     table.insert(lines, "")
   end
-  table.insert(lines, string.rep("─", 78))
+  table.insert(lines, string.rep("─", width))
   table.insert(lines, "")
 
   local current_stage = state.stages[state.current_stage_idx] or "N/A"
   table.insert(lines, string.format("  %s: %s", terms.section, current_stage))
   table.insert(lines, "")
 
-  table.insert(lines, string.format("  %-3s %-45s %-12s %s", "", "JOB", "STATUS", "DURATION"))
-  table.insert(lines, string.rep("─", 78))
+  table.insert(lines, row("", "JOB", "STATUS", "DURATION"))
+  table.insert(lines, string.rep("─", width))
 
   local header_end = #lines
   state.header_end = header_end
-
-  local current_jobs = stages_mod.get_current_stage_jobs(state)
 
   if #current_jobs == 0 then
     table.insert(lines, "")
@@ -181,15 +239,11 @@ function M.render()
   else
     for i, job in ipairs(current_jobs) do
       local icon = STATUS_ICONS[job.status] or "? "
-      local name = job.name or "unknown"
+      local name = truncate(job.name or "unknown", name_w)
       local status = job.status or ""
       local duration = format_duration(job.duration)
 
-      if #name > 43 then
-        name = name:sub(1, 40) .. "..."
-      end
-
-      local line = string.format("  %s %-45s %-12s %s", icon, name, status, duration)
+      local line = row(icon, name, status, duration)
       table.insert(lines, line)
 
       local hl_group = STATUS_HL[job.status] or "Normal"
