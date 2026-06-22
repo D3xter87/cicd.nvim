@@ -35,6 +35,27 @@ local STATUS_HL = {
 
 local NS_ID = vim.api.nvim_create_namespace("cicd")
 
+-- Format a duration (in seconds) using the largest sensible unit:
+--   < 60s   -> "Xs"      (e.g. "12s", rounded to whole seconds)
+--   < 1h    -> "Xm Ys"   (e.g. "1m 5s")
+--   >= 1h   -> "Xh Ym"   (e.g. "2h 15m")
+local function format_duration(seconds)
+  if not seconds then
+    return "-"
+  end
+  if seconds < 60 then
+    return string.format("%ds", math.floor(seconds + 0.5))
+  end
+  if seconds < 3600 then
+    local mins = math.floor(seconds / 60)
+    local secs = math.floor(seconds % 60)
+    return string.format("%dm %ds", mins, secs)
+  end
+  local hours = math.floor(seconds / 3600)
+  local mins = math.floor((seconds % 3600) / 60)
+  return string.format("%dh %dm", hours, mins)
+end
+
 -- Per-provider UI terminology so users see the language they expect
 -- (GitLab calls them "stages", GitHub calls them "workflows").
 local TERMS = {
@@ -162,7 +183,7 @@ function M.render()
       local icon = STATUS_ICONS[job.status] or "? "
       local name = job.name or "unknown"
       local status = job.status or ""
-      local duration = job.duration and string.format("%.1fs", job.duration) or "-"
+      local duration = format_duration(job.duration)
 
       if #name > 43 then
         name = name:sub(1, 40) .. "..."
