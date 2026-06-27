@@ -26,7 +26,8 @@ local logview = require("cicd.ui.logview")
 ---@class CicdRef
 ---@field kind "branch"|"tag"|"sha"
 ---@field value string  full SHA for kind="sha", ref name otherwise
----@field short string|nil  7-char SHA for kind="sha"
+---@field sha string|nil  full commit SHA for kind="sha", or the tag's target commit for kind="tag"
+---@field short string|nil  7-char SHA for kind="sha" or kind="tag"
 
 ---@class CicdCtx
 ---@field provider table
@@ -67,7 +68,9 @@ local function apply_branch_fallback()
   state.fallback_attempted = true
 
   local branch = git_util.current_branch()
-  if branch == "" then return false end
+  -- Detached HEAD reports "HEAD" from `rev-parse --abbrev-ref`; there is no
+  -- branch to fall back to, so don't query `?ref=HEAD` (which matches nothing).
+  if branch == "" or branch == "HEAD" then return false end
 
   local original_short = state.ref and state.ref.short
   ctx.ref = { kind = "branch", value = branch }
@@ -325,7 +328,12 @@ local function resolve_ref(opts)
     return { kind = "sha", value = full, short = full:sub(1, 7) }
   end
   if opts.tag and opts.tag ~= "" then
-    return { kind = "tag", value = opts.tag }
+    -- Peel the tag to its target commit. GitLab/GitHub index pipelines by the
+    -- commit SHA (the pipeline's own ref is whatever branch triggered it, not
+    -- the tag), so providers query by `sha`. `^{commit}` is required because an
+    -- annotated tag's own SHA is the tag object, not the commit.
+    local full = git_util.resolve_full_sha(opts.tag .. "^{commit}")
+    return { kind = "tag", value = opts.tag, sha = full, short = full and full:sub(1, 7) or nil }
   end
   if opts.branch and opts.branch ~= "" then
     return { kind = "branch", value = opts.branch:gsub("^origin/", "") }

@@ -26,7 +26,11 @@ local function resolve_ref(opts)
     return { kind = "sha", value = full, short = full:sub(1, 7) }
   end
   if opts.tag and opts.tag ~= "" then
-    return { kind = "tag", value = opts.tag }
+    -- Peel the tag to its target commit so the provider can query by `sha`
+    -- (pipelines are keyed by commit, not the tag name). `^{commit}` peels
+    -- annotated tags, whose own SHA is the tag object rather than the commit.
+    local full = git_util.resolve_full_sha(opts.tag .. "^{commit}")
+    return { kind = "tag", value = opts.tag, sha = full, short = full and full:sub(1, 7) or nil }
   end
   if opts.branch and opts.branch ~= "" then
     return { kind = "branch", value = opts.branch:gsub("^origin/", "") }

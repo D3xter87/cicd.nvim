@@ -114,24 +114,30 @@ function M.build_remote(remote_info, cfg)
   }
 end
 
----Fetches the latest pipeline for the given ref (branch name or commit SHA),
----then its jobs. GitLab's `?ref=<value>` parameter accepts either.
+---Fetches the latest pipeline for the given ref, then its jobs. GitLab's `ref`
+---filter matches branch/tag *names* only, NOT commit SHAs — and a tag's
+---pipeline is keyed by the commit it points to (its ref is the triggering
+---branch), so SHA and tag targets must query the dedicated `sha` parameter.
 ---@param remote table
----@param ref { kind: "branch"|"sha", value: string }
+---@param ref { kind: "branch"|"sha"|"tag", value: string, sha: string|nil }
 ---@param cb fun(pipeline: table|nil, err: string|nil)
 function M.fetch_current_pipeline(remote, ref, cb)
   local pipelines_url = string.format("%s/projects/%s/pipelines", remote.base_url, remote.project_id)
+
+  local query = { order_by = "updated_at", sort = "desc", per_page = 1 }
+  if ref.kind == "sha" then
+    query.sha = ref.value
+  elseif ref.kind == "tag" and ref.sha then
+    query.sha = ref.sha
+  else
+    query.ref = ref.value
+  end
 
   client.request({
     url = pipelines_url,
     method = "get",
     headers = remote.headers,
-    query = {
-      ref = ref.value,
-      order_by = "updated_at",
-      sort = "desc",
-      per_page = 1,
-    },
+    query = query,
   }, function(res)
     if not res.ok then
       return cb(nil, res.err or "failed to list pipelines")
@@ -212,9 +218,10 @@ end
 
 ---Resolve a browser URL for a ref without fetching jobs.
 ---  * If a pipeline exists for the ref → its API-provided web_url.
----  * Otherwise a sensible fallback page filtered by the ref.
+---  * Otherwise a sensible fallback page (commit page for sha/tag, pipelines
+---    list filtered by name for a branch).
 ---@param remote table
----@param ref { kind: "branch"|"sha", value: string }
+---@param ref { kind: "branch"|"sha"|"tag", value: string, sha: string|nil }
 ---@param cb fun(url: string|nil, err: string|nil)
 function M.resolve_web_url(remote, ref, cb)
   local pipelines_url = string.format("%s/projects/%s/pipelines", remote.base_url, remote.project_id)
@@ -222,11 +229,12 @@ function M.resolve_web_url(remote, ref, cb)
   local web_base = string.format("%s://%s/%s", scheme, remote.host, remote.path)
 
   -- GitLab's pipelines `ref` filter matches branch/tag names only, NOT commit
-  -- SHAs. For a SHA target we must query the dedicated `sha` parameter,
-  -- otherwise the lookup finds nothing and we fall back to the commit page.
+  -- SHAs — and a tag's pipeline is keyed by its commit (its ref is the
+  -- triggering branch), so both SHA and tag targets query the `sha` parameter.
   local query = { order_by = "updated_at", sort = "desc", per_page = 1 }
-  if ref.kind == "sha" then
-    query.sha = ref.value
+  local commit_sha = ref.kind == "sha" and ref.value or (ref.kind == "tag" and ref.sha or nil)
+  if commit_sha then
+    query.sha = commit_sha
   else
     query.ref = ref.value
   end
@@ -244,9 +252,11 @@ function M.resolve_web_url(remote, ref, cb)
         if url and url ~= "" then return cb(url) end
       end
     end
-    -- Fallback when no pipeline is found (or the listing failed).
-    if ref.kind == "sha" then
-      cb(string.format("%s/-/commit/%s", web_base, ref.value))
+    -- Fallback when no pipeline is found (or the listing failed). For a sha or
+    -- tag we link to the commit page (the pipelines list filtered by a tag name
+    -- is empty — the pipeline's ref is the triggering branch, not the tag).
+    if commit_sha then
+      cb(string.format("%s/-/commit/%s", web_base, commit_sha))
     else
       cb(string.format("%s/-/pipelines?ref=%s", web_base, ref.value))
     end

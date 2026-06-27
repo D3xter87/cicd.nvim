@@ -186,11 +186,12 @@ function M._fetch_jobs_for_run(remote, run, cb)
 end
 
 ---Lists recent workflow runs filtered by ref. For branch refs we pass
----`?branch=<name>`; for SHA refs we pass `?head_sha=<sha>` (GitHub indexes
----runs by both, but not by a generic "ref"). Keeps the latest per workflow_id
----(API returns desc by created_at, so the first occurrence wins).
+---`?branch=<name>`; for SHA refs (and tags, keyed by their target commit) we
+---pass `?head_sha=<sha>` (GitHub indexes runs by both, but not by a generic
+---"ref"). Keeps the latest per workflow_id (API returns desc by created_at, so
+---the first occurrence wins).
 ---@param remote table
----@param ref { kind: "branch"|"sha", value: string }
+---@param ref { kind: "branch"|"sha"|"tag", value: string, sha: string|nil }
 ---@param cb fun(runs: table[]|nil, err: string|nil)
 function M._fetch_workflow_runs(remote, ref, cb)
   local url = string.format("%s/repos/%s/actions/runs", remote.base_url, remote.owner_repo)
@@ -200,6 +201,8 @@ function M._fetch_workflow_runs(remote, ref, cb)
   }
   if ref.kind == "sha" then
     query.head_sha = ref.value
+  elseif ref.kind == "tag" and ref.sha then
+    query.head_sha = ref.sha
   else
     query.branch = ref.value
   end
@@ -228,7 +231,7 @@ function M._fetch_workflow_runs(remote, ref, cb)
 end
 
 ---@param remote table
----@param ref { kind: "branch"|"sha", value: string }
+---@param ref { kind: "branch"|"sha"|"tag", value: string, sha: string|nil }
 ---@param cb fun(pipeline: table|nil, err: string|nil)
 function M.fetch_current_pipeline(remote, ref, cb)
   M._fetch_workflow_runs(remote, ref, function(runs, err)
@@ -288,7 +291,7 @@ end
 
 ---Resolve a browser URL for a ref without fetching jobs.
 ---@param remote table
----@param ref { kind: "branch"|"sha", value: string }
+---@param ref { kind: "branch"|"sha"|"tag", value: string, sha: string|nil }
 ---@param cb fun(url: string|nil, err: string|nil)
 function M.resolve_web_url(remote, ref, cb)
   local web_host = web_host_for(remote.host)
@@ -300,9 +303,11 @@ function M.resolve_web_url(remote, ref, cb)
       local url = nullable(runs[1].html_url)
       if url and url ~= "" then return cb(url) end
     end
-    -- Fallback when no run matches (or the lookup failed).
-    if ref.kind == "sha" then
-      cb(string.format("%s/commit/%s/checks", web_base, ref.value))
+    -- Fallback when no run matches (or the lookup failed). A sha or tag links
+    -- to the commit checks page (tag runs are keyed by the target commit).
+    local commit_sha = ref.kind == "sha" and ref.value or (ref.kind == "tag" and ref.sha or nil)
+    if commit_sha then
+      cb(string.format("%s/commit/%s/checks", web_base, commit_sha))
     else
       cb(string.format("%s/actions?query=branch%%3A%s", web_base, ref.value))
     end
