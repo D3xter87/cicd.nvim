@@ -110,19 +110,36 @@ local function terms_for(provider_name)
   return TERMS[provider_name] or TERMS.gitlab
 end
 
+-- Aggregate a stage's color from its jobs' statuses. Priority (highest first):
+-- any failed -> red, any running -> in-progress, any pending -> pending,
+-- any active job succeeded -> green. A stage where nothing has been activated
+-- (only manual/created/skipped/canceled, or no jobs) stays white ("Normal").
 local function aggregate_stage(stage_jobs)
-  local has_failed, has_running, has_manual, all_success = false, false, false, true
+  local has_failed, has_running, has_pending, has_success = false, false, false, false
   for _, job in ipairs(stage_jobs) do
-    if job.status == "failed" then has_failed = true; all_success = false end
-    if job.status == "running" then has_running = true; all_success = false end
-    if job.status == "manual" then has_manual = true; all_success = false end
-    if job.status ~= "success" and job.status ~= "passed" then all_success = false end
+    local s = job.status
+    if s == "failed" then has_failed = true
+    elseif s == "running" then has_running = true
+    elseif s == "pending" then has_pending = true
+    elseif s == "success" or s == "passed" then has_success = true end
   end
   if has_failed then return " ", "DiagnosticError" end
   if has_running then return " ", "DiagnosticInfo" end
-  if all_success and #stage_jobs > 0 then return " ", "DiagnosticOk" end
-  if has_manual then return " ", "DiagnosticHint" end
-  return " ", "Comment"
+  if has_pending then return " ", "DiagnosticWarn" end
+  if has_success then return " ", "DiagnosticOk" end
+  return " ", "Normal"
+end
+
+-- Combines the PmenuSel background (the selection indicator) with a status
+-- foreground so the selected stage keeps its highlight *and* shows its color.
+-- Rebuilt each render so it follows colorscheme changes. For "Normal" the
+-- foreground is nil, leaving the default (white) text on the selection bg.
+local function selected_stage_hl(status_hl)
+  local name = "CicdStageSel_" .. status_hl
+  local sel = vim.api.nvim_get_hl(0, { name = "PmenuSel" })
+  local fg = vim.api.nvim_get_hl(0, { name = status_hl })
+  vim.api.nvim_set_hl(0, name, { bg = sel.bg, fg = fg.fg, bold = true })
+  return name
 end
 
 function M.render()
@@ -195,13 +212,9 @@ function M.render()
 
     local stage_line_num = #lines
     for _, pos in ipairs(stage_positions) do
-      if pos.selected then
-        table.insert(highlights, {
-          line = stage_line_num, col_start = pos.start, col_end = pos.finish, hl_group = "PmenuSel",
-        })
-      end
+      local hl = pos.selected and selected_stage_hl(pos.hl) or pos.hl
       table.insert(highlights, {
-        line = stage_line_num, col_start = pos.start + 1, col_end = pos.start + 4, hl_group = pos.hl,
+        line = stage_line_num, col_start = pos.start, col_end = pos.finish, hl_group = hl,
       })
     end
   else
